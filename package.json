@@ -1,0 +1,25 @@
+{
+  "name": "arkham-pnl",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bitfinex-api-node": "^2.0.4",
+    "bootstrap": "^4.2.1",
+    "ejs": "^2.6.1",
+    "express": "^4.16.4",
+    "mssql": "^4.3.0",
+    "pandas-js": "^0.2.4",
+    "socket.io": "^2.2.0"
+  },
+  "devDependencies": {
+    "convert-array-to-csv": "^1.0.4",
+    "immutable": "^4.0.0-rc.12",
+    "papaparse": "^4.6.2"
+  }
+}
