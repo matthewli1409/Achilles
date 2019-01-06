@@ -4,21 +4,27 @@ var DataFrame = require('pandas-js').DataFrame;
 var Series = require('pandas-js').Series;
 
 const pdHelper = require('./util/pandas');
+const bDates = require('./util/benchmarkDates');
 
-const {
-    Map
-} = require('immutable');
-const {
-    convertArrayToCSV
-} = require('convert-array-to-csv');
 
 const db = require('./util/database');
 
-pool1 = db.connection.connect();
+// db.mongoConnect(() => {
+//     db.getDb().collection('Trade').find({
+//         Fund_ID: '0003'
+//     }).toArray((err, result) => {
+//         if(err) console.error(err);
+//         let df = new DataFrame(result);
+//         console.log(df.head(5).toString());
+//     })
+// });
+
+
+// pool1 = db.connection.connect();
 
 // pool1.then(() => {
 //         var request = new sql.Request(db.connection);
-//         return request.query("SELECT * FROM Trade_Table WHERE Fund_ID = '0003'")
+//         return request.query("SELECT *, CAST(Date_Time AS DATE) AS Date FROM   Trade_table WITH (NOLOCK) WHERE  Fund_id = '0003'")
 //     })
 //     .then(result => {
 //         // console.log(result.recordset);
@@ -34,82 +40,71 @@ pool1 = db.connection.connect();
 //     });
 
 
-//         console.log(df.head(2).toString());
-
-//         // let a = df.get('Ticker').map(e => e.slice(1, 4)).values
-
-//         t0 = new Date().getTime();
-
-//         // Qty if fees are in USD
-//         let dfQtyUsd = new Series(df.get('Fee_Currency').where('USD', (v1, v2) => v1 === v2).values).mul(df.get('Quantity'));
-
-//         // QTY if fees are in coin
-//         let dfQtyNonUsd = new Series(df.get('Fee_Currency').where('USD', (v1, v2) => v1 !== v2).values).mul(df.get('Quantity').sub(df.get('Fee').abs()));
-
-//         // NET Qty
-//         let dfQty = dfQtyUsd.add(dfQtyNonUsd);
-
-//         // QTY * PRICE + Fees
-//         let nn = dfQty.mul(df.get('Price')).add(dfQtyUsd)
-
-//         console.log(nn.values.toJS());
-//         // APPEND NET QTY TO THE END OF df
-//         df = new DataFrame(([nn.values.toJS(), df])).transpose();
-
-//         // FILTER BY BTC AND STRATEGIC TRADES FOR NOW. WILL NEED TO LOOP OVER INSTRUMENTS IN DEPLOYMENT
-//         // let dfFilter = df.filter(df.get('Ticker').eq('tBTCUSD'));
-//         // dfFilter = dfFilter.filter(dfFilter.get('Classification').eq('S'));
-
-//         // console.log(dfFilter.values.toString());
-//         // console.log(dfFilter.length)
-
-//         // let dfStratFilter = new Series(df.get('Classification').where('S', (v1, v2) => v1 === v2).values)
-
-//         // let dfInstFilter = new Series(df.get('Ticker').where('tBTCUSD', (v1, v2) => v1 === v2).values).mul(dfStratFilter).mul(nn);
-
-//         // console.log(dfInstFilter)
-//         // console.log(dfInstFilter.length);
-
-//         // console.log(df)
-//         let cnn = dfInstFilter.cumsum();
-//         // console.log(cnn);
-//         // console.log(cnn.length);
-
-//         console.log(dfStratFilter.filter(dfStratFilter.eq(true)).values);
-//         // console.log(dfStratFilter);
-
-
-//         // serToCsv(, 'cnn');
-
-//         console.log(new Date().getTime() - t0);
-//     })
-//     .catch(err => {
-//         console.log(err);
-//     });
-
-
 pdHelper.pdReadJsonDf('data/trades.json', (err, df) => {
-    // Qty if fees are in USD
+
+    // Make fees absolute
+    df = df.set('Fee', df.get('Fee').abs());
+
+    // Adjusted Qty column
     let dfQtyUsd = new Series(df.get('Fee_Currency').where('USD', (v1, v2) => v1 === v2).values).mul(df.get('Quantity'));
+    let dfQtyNonUsd = new Series(df.get('Fee_Currency').where('USD', (v1, v2) => v1 !== v2).values).mul(df.get('Quantity').sub(df.get('Fee')));
+    let dfAdjQty = dfQtyUsd.add(dfQtyNonUsd);
 
-    // QTY if fees are in coin
-    let dfQtyNonUsd = new Series(df.get('Fee_Currency').where('USD', (v1, v2) => v1 !== v2).values).mul(df.get('Quantity').sub(df.get('Fee').abs()));
+    // Adjusted Fees column
+    let dfFeeUsd = new Series(df.get('Fee_Currency').where('USD', (v1, v2) => v1 === v2).values).mul(df.get('Fee'));
+    let dfFeeNonUsd = new Series(df.get('Fee_Currency').where('USD', (v1, v2) => v1 !== v2).values).mul(df.get('Fee').mul(0));
+    let dfAdjFee = dfFeeUsd.add(dfFeeNonUsd);
 
-    // NET Qty
-    let dfQty = dfQtyUsd.add(dfQtyNonUsd);
+    // Concat Adjusted Qty, Fees and Net Notional to main DataFrame
+    df = df.set('Adjusted_Qty', dfAdjQty);
+    df = df.set('Adjusted_Fee', dfAdjFee);
+    df = df.set('Net_Notional', df.get('Adjusted_Qty').mul(df.get('Price')).add(df.get('Adjusted_Fee')));
 
-    // QTY * PRICE + Fees
-    let nn = dfQty.mul(df.get('Price')).add(dfQtyUsd)
+    // FILTER BY BTC AND STRATEGIC TRADES FOR NOW. WILL NEED TO LOOP OVER INSTRUMENTS IN DEPLOYMENT
+    let dfFilter = df.filter(df.get('Ticker').eq('tBTCUSD'));
+    // dfFilter = dfFilter.filter(dfFilter.get('Classification').eq('R'));
 
-    // Add Net Qty to main DataFrame
-    df = df.set('Net_Qty', dfQty);
-    console.log(df.tail(5).toString());
+    let cnn = dfFilter.get('Net_Notional').cumsum();
+    let rollingQty = dfFilter.get('Adjusted_Qty').cumsum();
+    let openAve = cnn.div(rollingQty);
 
-    fs.writeFile('data/trades.csv', df.to_csv(), err => {
-        console.log('done');
-    });
+    // dfFilter = dfFilter.set('nn', dfnn);
+    dfFilter = dfFilter.set('cnn', cnn);
+    dfFilter = dfFilter.set('Rolling_Qty', rollingQty);
+    dfFilter = dfFilter.set('Open_Average', openAve);
 
-    // pdHelper.seriesToCsv(dfQty, 'Qty')
+    pdHelper.dfToCsv(dfFilter, 'cnn');
 
+    // Find dates greater than...
+    ytdDt = new Date(2018, 11, 31);
 
-});
+    dfdt = dfFilter.get('Date');
+    dfdt = dfdt.map((val, idx) => Date.parse(val));
+    console.log(ytdDt);
+    console.log(Date.parse(ytdDt))
+
+    // IS IT GREATER THAN YTD DATE
+    dfDtTrue = dfdt.gte(Date.parse(ytdDt));
+
+    // If 0 then our current benchmark (YTD) date is greater than the last traded date
+    let benchmarkGreaterBool = dfDtTrue.filter(dfDtTrue.eq(true)).length
+
+    if (benchmarkGreaterBool === 0) {
+        console.log('Last traded date is before YTD');
+
+        // Get last row of data of trades as this is the last updated RollingQty
+        dfFilterColumns = dfFilter.columns.toJS();
+        let rollingQtyColIdx = dfFilterColumns.indexOf('Rolling_Qty');
+        let openAveColIdx = dfFilterColumns.indexOf('Open_Average');
+
+        let rollingQty = dfFilter.iloc(dfFilter.length-1, rollingQtyColIdx).values.toJS()[0][0];
+        let openAve = dfFilter.iloc(dfFilter.length-1, openAveColIdx).values.toJS()[0][0];
+
+        // That means we need to get the last traded - TODO GET THIS FROM API
+        let ytdPrice = 3830.5;
+        // let cumPnl = (ytdPrice - openAve) * rollingQty;
+        let livePnl = ((4025.7 - openAve) * rollingQty) - ((ytdPrice - openAve) * rollingQty);
+        console.log(livePnl);
+        console.log(bDates.ytdBenchmarkDate(new Date()))
+    }
+})

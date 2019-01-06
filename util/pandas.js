@@ -49,14 +49,22 @@ const seriesToCsv = (series, filename) => {
     });
 };
 
+/**
+ * Convert DataFrame into csv
+ *
+ * @param {DataFrame} df DataFrame to be converted to csv.
+ * @param {String} filename Filename to save csv as
+ * @public
+ */
 const dfToCsv = (df, filename) => {
-    fs.writeFile(path.join('data', `${filename}.csv`, df.to_csv(), err => {
+    fs.writeFile(path.join('data', `${filename}.csv`), df.to_csv(), err => {
         if (err) console.error(err);
         console.log('Wrote DataFrame to csv.')
-    }));
+    });
 };
 
 module.exports = {
     pdReadJsonDf,
-    seriesToCsv
+    seriesToCsv,
+    dfToCsv
 }

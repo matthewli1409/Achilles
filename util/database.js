@@ -1,15 +1,31 @@
-const sql = require('mssql');
+const mongodb = require('mongodb');
 
-const dbConfig = {
-    user: 'matt.li',
-    password: '%3lue3!t%',
-    server: 'BBC-VPC-SQL01.bluebit.local',
-    database: 'BlueBit'
-}
+const config = require('./config.json');
 
-var connection = new sql.ConnectionPool(dbConfig);
+const MongoClient = mongodb.MongoClient;
+let _db;
 
-module.exports = {
-    dbConfig,
-    connection
-}
+const mongoConnect = (cb) => {
+	MongoClient.connect(config.mongoDbLogin, {
+			useNewUrlParser: true
+		})
+		.then(client => {
+			_db = client.db();
+			console.log('Connected to MongoDB');
+			cb();
+		})
+		.catch(err => {
+			console.log(err);
+			throw err;
+		});
+};
+
+const getDb = () => {
+	if (_db) {
+		return _db;
+	}
+	throw 'No database found!';
+};
+
+exports.mongoConnect = mongoConnect;
+exports.getDb = getDb;
